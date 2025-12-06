@@ -29,7 +29,9 @@ app.set('io', io);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-
+app.use('/', (req, res) => {
+  res.send('running api');
+});
 // Socket.io connection
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
