@@ -21,7 +21,7 @@ const Dashboard = ({ user, onLogout }) => {
 
   useEffect(() => {
     // Connect to socket
-    const socket = io('http://localhost:5000');
+    const socket = io('https://track-friends.onrender.com');
 
     socket.on('connect', () => {
       console.log('✅ Socket connected:', socket.id);
