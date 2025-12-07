@@ -1,283 +1,471 @@
 import React, { useState, useEffect } from "react";
+import { GoogleOAuthProvider, GoogleLogin } from "@react-oauth/google";
+import { toast } from "react-toastify";
+import { googleLogin } from "../services/api";
 
 const Login = ({ onLoginSuccess }) => {
-  const [showContent, setShowContent] = useState(false);
-  const [animationComplete, setAnimationComplete] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   useEffect(() => {
-    const timer1 = setTimeout(() => setShowContent(true), 500);
-    const timer2 = setTimeout(() => setAnimationComplete(true), 2500);
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-    };
+    const timer = setTimeout(() => {
+      setInitialLoading(false);
+    }, 3000);
+
+    return () => clearTimeout(timer);
   }, []);
 
-  const handleGoogleLogin = () => {
-    // Redirect to Google OAuth or handle login
-    alert("Google Login button clicked. Connect your Google OAuth here.");
+  const handleSuccess = async (credentialResponse) => {
+    setLoading(true);
+    try {
+      const result = await googleLogin(credentialResponse.credential);
+
+      if (result.success) {
+        localStorage.setItem("token", result.token);
+        localStorage.setItem("user", JSON.stringify(result.user));
+        toast.success("Login successful!");
+        onLoginSuccess(result.user);
+      }
+    } catch (error) {
+      toast.error("Login failed. Please try again.");
+      console.error("Login error:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '20px',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* Animated Background Circles */}
-      <div style={{
-        position: 'absolute',
-        top: '10%',
-        left: '10%',
-        width: '300px',
-        height: '300px',
-        background: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: '50%',
-        filter: 'blur(60px)',
-        animation: 'float 6s ease-in-out infinite'
-      }}></div>
-      <div style={{
-        position: 'absolute',
-        bottom: '10%',
-        right: '10%',
-        width: '250px',
-        height: '250px',
-        background: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: '50%',
-        filter: 'blur(60px)',
-        animation: 'float 8s ease-in-out infinite',
-        animationDelay: '2s'
-      }}></div>
+  const handleError = () => {
+    toast.error("Google login failed");
+    setLoading(false);
+  };
 
-      {/* Main Container */}
-      <div style={{
-        position: 'relative',
-        zIndex: 10,
-        width: '100%',
-        maxWidth: '450px',
-        transition: 'all 1s ease',
-        opacity: showContent ? 1 : 0,
-        transform: showContent ? 'translateY(0)' : 'translateY(30px)'
-      }}>
-        {/* Welcome Animation Text */}
-        <div style={{
-          textAlign: 'center',
-          marginBottom: '30px',
-          transition: 'all 1s ease',
-          opacity: animationComplete ? 0 : 1,
-          maxHeight: animationComplete ? '0' : '400px',
-          overflow: 'hidden'
-        }}>
-          {/* Globe Icon Animation */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            marginBottom: '20px'
-          }}>
-            <div style={{
-              position: 'relative',
-              width: '100px',
-              height: '100px'
-            }}>
-              {/* Globe */}
-              <svg style={{
-                width: '100px',
-                height: '100px',
-                animation: 'spin 4s linear infinite'
-              }} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/>
-                <line x1="2" y1="12" x2="22" y2="12"/>
-                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-              </svg>
-              {/* Pin */}
-              <svg style={{
-                width: '40px',
-                height: '40px',
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                animation: 'bounce 2s ease-in-out infinite',
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))'
-              }} viewBox="0 0 24 24" fill="#ef4444" stroke="white" strokeWidth="2">
-                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                <circle cx="12" cy="10" r="3" fill="white"/>
-              </svg>
+  if (initialLoading) {
+    return (
+      <div className="min-vh-100 d-flex align-items-center justify-content-center position-relative overflow-hidden" 
+           style={{ 
+             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+           }}>
+        
+        {/* Water Wave Animation */}
+        <div className="position-absolute w-100 h-100 overflow-hidden">
+          <svg className="position-absolute bottom-0 w-100" viewBox="0 0 1440 320" preserveAspectRatio="none" style={{ height: '40%' }}>
+            <path fill="rgba(255, 255, 255, 0.1)" fillOpacity="1" d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,112C672,96,768,96,864,112C960,128,1056,160,1152,160C1248,160,1344,128,1392,112L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z">
+              <animate attributeName="d" dur="10s" repeatCount="indefinite" values="
+                M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,112C672,96,768,96,864,112C960,128,1056,160,1152,160C1248,160,1344,128,1392,112L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z;
+                M0,160L48,144C96,128,192,96,288,96C384,96,480,128,576,144C672,160,768,160,864,144C960,128,1056,96,1152,96C1248,96,1344,128,1392,144L1440,160L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z;
+                M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,112C672,96,768,96,864,112C960,128,1056,160,1152,160C1248,160,1344,128,1392,112L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/>
+            </path>
+          </svg>
+          <svg className="position-absolute bottom-0 w-100" viewBox="0 0 1440 320" preserveAspectRatio="none" style={{ height: '35%' }}>
+            <path fill="rgba(255, 255, 255, 0.05)" fillOpacity="1" d="M0,192L48,176C96,160,192,128,288,128C384,128,480,160,576,176C672,192,768,192,864,176C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z">
+              <animate attributeName="d" dur="8s" repeatCount="indefinite" values="
+                M0,192L48,176C96,160,192,128,288,128C384,128,480,160,576,176C672,192,768,192,864,176C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z;
+                M0,128L48,144C96,160,192,192,288,192C384,192,480,160,576,144C672,128,768,128,864,144C960,160,1056,192,1152,192C1248,192,1344,160,1392,144L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z;
+                M0,192L48,176C96,160,192,128,288,128C384,128,480,160,576,176C672,192,768,192,864,176C960,160,1056,128,1152,128C1248,128,1344,160,1392,176L1440,192L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"/>
+            </path>
+          </svg>
+        </div>
+
+        <div className="text-center position-relative" style={{ zIndex: 2 }}>
+          {/* Animated Logo */}
+          <div className="mb-4 d-flex justify-content-center">
+            <div className="position-relative d-inline-block">
+              <div className="position-relative" style={{ animation: 'bounce 1s ease-in-out infinite' }}>
+                <div className="d-flex align-items-center justify-content-center rounded-circle mx-auto"
+                     style={{
+                       width: '100px',
+                       height: '100px',
+                       background: 'rgba(255, 255, 255, 0.2)',
+                       backdropFilter: 'blur(10px)',
+                       boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
+                     }}>
+                  <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" 
+                          fill="white"/>
+                  </svg>
+                </div>
+              </div>
+              {/* Pulse Rings */}
+              <div className="position-absolute top-50 start-50 translate-middle">
+                <div style={{
+                  width: '100px',
+                  height: '100px',
+                  border: '3px solid rgba(255, 255, 255, 0.5)',
+                  borderRadius: '50%',
+                  animation: 'pulse 2s ease-out infinite'
+                }}></div>
+              </div>
+              <div className="position-absolute top-50 start-50 translate-middle">
+                <div style={{
+                  width: '100px',
+                  height: '100px',
+                  border: '3px solid rgba(255, 255, 255, 0.3)',
+                  borderRadius: '50%',
+                  animation: 'pulse 2s ease-out infinite 0.5s'
+                }}></div>
+              </div>
             </div>
           </div>
 
-          <h1 style={{
-            fontSize: '2.5rem',
-            fontWeight: 'bold',
+          {/* Company Name with Gradient */}
+          <h1 className="mb-3 fw-bold px-3" style={{
             color: 'white',
-            marginBottom: '15px',
-            animation: 'fadeInUp 1s ease',
-            textShadow: '0 2px 10px rgba(0,0,0,0.2)'
+            fontSize: 'clamp(1.8rem, 5vw, 2.5rem)',
+            textShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+            animation: 'fadeInUp 0.8s ease-out',
+            letterSpacing: '1px'
           }}>
-            Welcome to Your Friends' World
+            Location bro.......
           </h1>
-          <p style={{
-            fontSize: '1.25rem',
+
+          {/* Loading Text */}
+          <p className="mb-4 px-3" style={{
             color: 'rgba(255, 255, 255, 0.9)',
-            animation: 'fadeInUp 1s ease 0.3s both',
-            textShadow: '0 1px 5px rgba(0,0,0,0.1)'
+            fontSize: 'clamp(1rem, 3vw, 1.1rem)',
+            animation: 'fadeInUp 0.8s ease-out 0.2s backwards'
           }}>
-            Where Every Friend Shows Their Location
+            wait a moment...
           </p>
+
+          {/* Animated Dots Loader */}
+          <div className="d-flex justify-content-center align-items-center gap-2 mb-4" 
+               style={{ animation: 'fadeInUp 0.8s ease-out 0.4s backwards' }}>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: 'white',
+              animation: 'dotBounce 1.4s ease-in-out infinite'
+            }}></div>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: 'white',
+              animation: 'dotBounce 1.4s ease-in-out infinite 0.2s'
+            }}></div>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: 'white',
+              animation: 'dotBounce 1.4s ease-in-out infinite 0.4s'
+            }}></div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="mx-auto px-3" style={{ 
+            width: '100%',
+            maxWidth: '300px',
+            animation: 'fadeInUp 0.8s ease-out 0.6s backwards'
+          }}>
+            <div style={{
+              height: '4px',
+              background: 'rgba(255, 255, 255, 0.2)',
+              borderRadius: '10px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                height: '100%',
+                background: 'white',
+                borderRadius: '10px',
+                animation: 'progressBar 3s ease-out forwards',
+                boxShadow: '0 0 10px rgba(255, 255, 255, 0.5)'
+              }}></div>
+            </div>
+          </div>
+        </div>
+
+        <style>{`
+          @keyframes bounce {
+            0%, 100% {
+              transform: translateY(0);
+            }
+            50% {
+              transform: translateY(-15px);
+            }
+          }
+
+          @keyframes pulse {
+            0% {
+              transform: translate(-50%, -50%) scale(1);
+              opacity: 1;
+            }
+            100% {
+              transform: translate(-50%, -50%) scale(1.8);
+              opacity: 0;
+            }
+          }
+
+          @keyframes fadeInUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          @keyframes dotBounce {
+            0%, 80%, 100% {
+              transform: scale(0.8);
+              opacity: 0.5;
+            }
+            40% {
+              transform: scale(1.2);
+              opacity: 1;
+            }
+          }
+
+          @keyframes progressBar {
+            from {
+              width: 0%;
+            }
+            to {
+              width: 100%;
+            }
+          }
+
+          @media (max-width: 576px) {
+            svg {
+              height: 30% !important;
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  return (
+    <GoogleOAuthProvider clientId="207839867306-jd8octkaf6pk60sc6sv0d8r88rpdninl.apps.googleusercontent.com">
+      <div className="min-vh-100 d-flex align-items-center justify-content-center position-relative overflow-hidden" 
+           style={{ 
+             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+             animation: 'fadeIn 0.5s ease-in'
+           }}>
+        
+        {/* Animated Background Elements */}
+        <div className="position-absolute w-100 h-100" style={{ overflow: 'hidden' }}>
+          <div className="position-absolute rounded-circle" 
+               style={{
+                 width: 'clamp(200px, 30vw, 300px)',
+                 height: 'clamp(200px, 30vw, 300px)',
+                 background: 'rgba(255, 255, 255, 0.1)',
+                 top: '-50px',
+                 right: '-50px',
+                 animation: 'float 6s ease-in-out infinite'
+               }}></div>
+          <div className="position-absolute rounded-circle" 
+               style={{
+                 width: 'clamp(150px, 20vw, 200px)',
+                 height: 'clamp(150px, 20vw, 200px)',
+                 background: 'rgba(255, 255, 255, 0.1)',
+                 bottom: '-30px',
+                 left: '-30px',
+                 animation: 'float 8s ease-in-out infinite'
+               }}></div>
         </div>
 
         {/* Login Card */}
-        <div style={{
-          background: 'white',
-          borderRadius: '20px',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-          padding: '40px',
-          transition: 'all 1s ease',
-          opacity: animationComplete ? 1 : 0,
-          transform: animationComplete ? 'scale(1)' : 'scale(0.95)'
-        }}>
-          {/* Header */}
-          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              marginBottom: '20px'
-            }}>
-              <div style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                padding: '15px',
-                borderRadius: '50%',
-                display: 'inline-block'
+        <div className="container position-relative px-3" style={{ zIndex: 1 }}>
+          <div className="row justify-content-center">
+            <div className="col-12 col-sm-10 col-md-8 col-lg-6 col-xl-5" style={{ maxWidth: '450px' }}>
+              <div className="card border-0 shadow-lg" 
+                   style={{
+                     borderRadius: '20px',
+                     backdropFilter: 'blur(10px)',
+                     background: 'rgba(255, 255, 255, 0.95)',
+                     animation: 'slideInUp 0.6s ease-out'
+                   }}>
+                <div className="card-body p-4 p-sm-5 position-relative">
+                  
+                  {/* Logo/Icon */}
+                  <div className="text-center mb-4">
+                    <div className="d-inline-flex align-items-center justify-content-center rounded-circle mb-3"
+                         style={{
+                           width: 'clamp(70px, 15vw, 80px)',
+                           height: 'clamp(70px, 15vw, 80px)',
+                           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                           boxShadow: '0 10px 25px rgba(102, 126, 234, 0.3)'
+                         }}>
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" 
+                              fill="white"/>
+                      </svg>
+                    </div>
+                    <h2 className="fw-bold mb-2" style={{ 
+                      color: '#2d3748',
+                      fontSize: 'clamp(1.3rem, 4vw, 1.75rem)'
+                    }}>
+                    Connect & Track
+                    </h2>
+                    <p className="text-muted mb-0" style={{ fontSize: 'clamp(0.85rem, 2.5vw, 0.95rem)' }}>
+                      Track and manage locations effortlessly
+                    </p>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="d-flex align-items-center my-4">
+                    <div className="flex-grow-1" style={{ height: '1px', background: '#e2e8f0' }}></div>
+                    <span className="px-3 text-muted" style={{ fontSize: 'clamp(0.75rem, 2vw, 0.85rem)' }}>
+                      Sign in to continue
+                    </span>
+                    <div className="flex-grow-1" style={{ height: '1px', background: '#e2e8f0' }}></div>
+                  </div>
+
+                  {/* Loading Overlay */}
+                  {loading && (
+                    <div className="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+                         style={{
+                           background: 'rgba(255, 255, 255, 0.95)',
+                           borderRadius: '20px',
+                           zIndex: 10,
+                           animation: 'fadeIn 0.3s ease-in'
+                         }}>
+                      <div className="text-center">
+                        {/* Rotating Circular Loader */}
+                        <div className="position-relative d-inline-block mb-3">
+                          <div style={{
+                            width: 'clamp(50px, 12vw, 60px)',
+                            height: 'clamp(50px, 12vw, 60px)',
+                            border: '4px solid #e2e8f0',
+                            borderTop: '4px solid #667eea',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                          }}></div>
+                          <div className="position-absolute top-50 start-50 translate-middle">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" 
+                                    fill="#667eea"/>
+                            </svg>
+                          </div>
+                        </div>
+                        <p className="fw-semibold mb-0" style={{ 
+                          color: '#667eea', 
+                          fontSize: 'clamp(1rem, 3vw, 1.1rem)' 
+                        }}>
+                          Wait bro...
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Google Login Button */}
+                  <div className="d-flex justify-content-center">
+                    <div style={{ width: '100%', maxWidth: '280px' }}>
+                      <GoogleLogin
+                        onSuccess={handleSuccess}
+                        onError={handleError}
+                        theme="filled_blue"
+                        size="large"
+                        text="signin_with"
+                        shape="rectangular"
+                        width="100%"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Features */}
+                  <div className="mt-4 pt-3" style={{ borderTop: '1px solid #e2e8f0' }}>
+                    <div className="row g-2 g-sm-3 text-center">
+                      <div className="col-4">
+                        <div className="p-2">
+                          <div className="mb-2" style={{ fontSize: 'clamp(1.2rem, 4vw, 1.5rem)' }}>🔒</div>
+                          <small className="text-muted d-block" style={{ fontSize: 'clamp(0.7rem, 2vw, 0.75rem)' }}>
+                            Secure
+                          </small>
+                        </div>
+                      </div>
+                      <div className="col-4">
+                        <div className="p-2">
+                          <div className="mb-2" style={{ fontSize: 'clamp(1.2rem, 4vw, 1.5rem)' }}>⚡</div>
+                          <small className="text-muted d-block" style={{ fontSize: 'clamp(0.7rem, 2vw, 0.75rem)' }}>
+                            Fast
+                          </small>
+                        </div>
+                      </div>
+                      <div className="col-4">
+                        <div className="p-2">
+                          <div className="mb-2" style={{ fontSize: 'clamp(1.2rem, 4vw, 1.5rem)' }}>📍</div>
+                          <small className="text-muted d-block" style={{ fontSize: 'clamp(0.7rem, 2vw, 0.75rem)' }}>
+                            Accurate
+                          </small>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Footer Text */}
+              <p className="text-center mt-3 mt-sm-4 mb-0 px-3" style={{ 
+                color: 'rgba(255, 255, 255, 0.9)', 
+                fontSize: 'clamp(0.75rem, 2vw, 0.85rem)',
+                animation: 'fadeInUp 0.8s ease-out 0.4s backwards'
               }}>
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="white">
-                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
-                  <circle cx="12" cy="10" r="3"/>
-                </svg>
-              </div>
+                Powered by Google Authentication
+              </p>
             </div>
-            <h2 style={{
-              fontSize: '2rem',
-              fontWeight: 'bold',
-              color: '#1f2937',
-              marginBottom: '10px'
-            }}>
-              Location Tracker
-            </h2>
-            <p style={{ color: '#6b7280' }}>
-              Sign in to connect with your friends
-            </p>
           </div>
-
-          {/* Features */}
-          <div style={{ marginBottom: '30px' }}>
-            {[
-              { icon: '👥', text: 'See your friends in real-time', color: '#3b82f6' },
-              { icon: '📍', text: 'Share your location safely', color: '#8b5cf6' },
-              { icon: '🌍', text: 'Stay connected anywhere', color: '#ec4899' }
-            ].map((feature, index) => (
-              <div key={index} style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '15px',
-                padding: '15px',
-                backgroundColor: `${feature.color}15`,
-                borderRadius: '10px',
-                marginBottom: '10px',
-                transition: 'transform 0.2s ease',
-                cursor: 'pointer'
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
-              onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}>
-                <span style={{ fontSize: '24px' }}>{feature.icon}</span>
-                <span style={{ color: '#374151', fontSize: '14px' }}>{feature.text}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Google Sign In Button */}
-          <button
-            onClick={handleGoogleLogin}
-            style={{
-              width: '100%',
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white',
-              fontWeight: '600',
-              padding: '15px',
-              borderRadius: '10px',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
-              transition: 'all 0.3s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.05)';
-              e.currentTarget.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'scale(1)';
-              e.currentTarget.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24">
-              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Sign in with Google
-          </button>
-
-          <p style={{
-            fontSize: '12px',
-            color: '#9ca3af',
-            textAlign: 'center',
-            marginTop: '20px'
-          }}>
-            By signing in, you agree to our Terms of Service and Privacy Policy
-          </p>
         </div>
-      </div>
 
-      {/* CSS Animations */}
-      <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-        
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        
-        @keyframes bounce {
-          0%, 100% { transform: translate(-50%, -50%) translateY(0); }
-          50% { transform: translate(-50%, -50%) translateY(-10px); }
-        }
-        
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(20px);
+        {/* CSS Animation */}
+        <style>{`
+          @keyframes float {
+            0%, 100% {
+              transform: translateY(0px);
+            }
+            50% {
+              transform: translateY(-20px);
+            }
           }
-          to {
-            opacity: 1;
-            transform: translateY(0);
+
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+            }
+            to {
+              opacity: 1;
+            }
           }
-        }
-      `}</style>
-    </div>
+
+          @keyframes slideInUp {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+
+          .card {
+            transition: transform 0.3s ease;
+          }
+
+          .card:hover {
+            transform: translateY(-5px);
+          }
+
+          @media (max-width: 576px) {
+            .card-body {
+              padding: 1.5rem !important;
+            }
+          }
+        `}</style>
+      </div>
+    </GoogleOAuthProvider>
   );
 };
 
-export default Login; 
+export default Login;
