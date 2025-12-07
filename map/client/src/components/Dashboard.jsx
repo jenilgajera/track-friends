@@ -1,392 +1,639 @@
 import React, { useEffect, useState } from 'react';
-import { MapPin, Users, Activity, Settings, Home, LogOut, RefreshCw, Navigation, Gauge, Menu, X, ChevronRight, User, Clock, Wifi, Zap, TrendingUp } from 'lucide-react';
+import { toast } from 'react-toastify';
+import { io } from 'socket.io-client';
+import MapComponent from './MapComponent';
+import UserTable from './UserTable';
+import { getAllUsers, updateLocation, logout } from '../services/api';
 
-const Dashboard = ({ user, onLogout, users = [], locationPermission, locationAccuracy, lastUpdate, locationDetails, updateUserLocation, fetchUsers }) => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [currentUser] = useState(user);
+const Dashboard = ({ user, onLogout }) => {
+  const [users, setUsers] = useState([]);
+  const [currentUser, setCurrentUser] = useState(user);
+  const [locationPermission, setLocationPermission] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const [watchId, setWatchId] = useState(null);
+  const [locationAccuracy, setLocationAccuracy] = useState(null);
+  const [locationDetails, setLocationDetails] = useState({
+    coords: null,
+    speed: null,
+    heading: null,
+    altitude: null
+  });
 
-  const onlineUsers = users.filter(u => u.location).length;
+  useEffect(() => {
+    const socket = io('https://track-friends.onrender.com');
+
+    socket.on('connect', () => {
+      console.log('✅ Socket connected:', socket.id);
+    });
+
+    socket.on('locationUpdate', (data) => {
+      console.log('📍 Location update received:', data);
+      fetchUsers();
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Socket disconnected');
+    });
+
+    requestLocationPermission();
+    fetchUsers();
+
+    const intervalId = setInterval(() => {
+      fetchUsers();
+      console.log('🔄 Auto-refreshing users...');
+    }, 30000);
+
+    return () => {
+      socket.disconnect();
+      clearInterval(intervalId);
+      
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        console.log('🛑 Location tracking stopped');
+      }
+    };
+  }, []);
+
+  const requestLocationPermission = () => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocationPermission(true);
+          updateUserLocation(position.coords.latitude, position.coords.longitude);
+          toast.success('Location tracking started!');
+          
+          const id = navigator.geolocation.watchPosition(
+            (pos) => {
+              const accuracy = pos.coords.accuracy;
+              setLocationAccuracy(accuracy);
+              
+              setLocationDetails({
+                coords: {
+                  lat: pos.coords.latitude,
+                  lng: pos.coords.longitude
+                },
+                speed: pos.coords.speed,
+                heading: pos.coords.heading,
+                altitude: pos.coords.altitude
+              });
+              
+              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+              console.log('📍 LIVE LOCATION UPDATE');
+              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+              console.log('🌐 Latitude:', pos.coords.latitude);
+              console.log('🌐 Longitude:', pos.coords.longitude);
+              console.log('🎯 Accuracy:', accuracy.toFixed(2), 'meters');
+              console.log('⛰️  Altitude:', pos.coords.altitude ? pos.coords.altitude.toFixed(2) + 'm' : 'N/A');
+              console.log('🚗 Speed:', pos.coords.speed ? (pos.coords.speed * 3.6).toFixed(2) + ' km/h' : 'Stationary');
+              console.log('🧭 Heading:', pos.coords.heading ? pos.coords.heading + '°' : 'N/A');
+              console.log('📡 Source:', pos.coords.altitudeAccuracy !== null ? '🛰️ GPS' : '📶 WiFi/Network');
+              console.log('⏰ Time:', new Date(pos.timestamp).toLocaleTimeString());
+              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+              
+              if (accuracy < 100) {
+                updateUserLocation(pos.coords.latitude, pos.coords.longitude);
+              } else {
+                console.warn('⚠️ Accuracy too low, waiting for better signal...');
+                toast.warning(`Low accuracy: ${accuracy.toFixed(0)}m - Waiting for better GPS signal...`, {
+                  autoClose: 2000
+                });
+              }
+            },
+            (error) => {
+              console.error('❌ Location tracking error:', error);
+              if (error.code === 1) {
+                toast.error('Location permission denied');
+              } else if (error.code === 2) {
+                toast.error('Location unavailable');
+              } else {
+                toast.error('Location timeout');
+              }
+            },
+            { 
+              enableHighAccuracy: true,
+              timeout: 20000,
+              maximumAge: 0
+            }
+          );
+
+          setWatchId(id);
+          console.log('✅ Location watch started with ID:', id);
+        },
+        (error) => {
+          setLocationPermission(false);
+          if (error.code === 1) {
+            toast.error('Location permission denied. Please enable it in browser settings.');
+          } else if (error.code === 2) {
+            toast.error('Location unavailable. Check GPS/network.');
+          } else if (error.code === 3) {
+            toast.error('Location request timeout.');
+          }
+          console.error('Location error:', error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0
+        }
+      );
+    } else {
+      toast.error('Geolocation is not supported by your browser');
+    }
+  };
+
+  const updateUserLocation = async (latitude, longitude) => {
+    try {
+      console.log('🔄 Updating location in database...');
+      console.log('📍 Coordinates:', latitude, longitude);
+      
+      const cityData = await getCityFromCoordinates(latitude, longitude);
+      
+      console.log('🏙️ City detected:', cityData.city);
+      console.log('🗺️ Full address:', cityData.fullAddress);
+      
+      await updateLocation(latitude, longitude, cityData.city, cityData.state, cityData.country);
+      
+      setCurrentUser(prev => ({
+        ...prev,
+        location: { 
+          latitude, 
+          longitude,
+          city: cityData.city,
+          state: cityData.state,
+          country: cityData.country,
+          fullAddress: cityData.fullAddress
+        }
+      }));
+      
+      setLastUpdate(new Date().toLocaleTimeString());
+      toast.success(`✅ Location updated: ${cityData.city}`, {
+        autoClose: 2000
+      });
+      
+      console.log('✅ Location updated successfully in database');
+    } catch (error) {
+      console.error('❌ Failed to update location:', error);
+      toast.error('Location update failed');
+    }
+  };
+
+  const getCityFromCoordinates = async (lat, lon) => {
+    try {
+      console.log('🔍 Fetching address for:', lat, lon);
+      
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'LocationTrackerApp/1.0'
+          }
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Geocoding failed');
+      }
+      
+      const data = await response.json();
+      console.log('🏠 Full Address Data:', data);
+      console.log('📍 Display Name:', data.display_name);
+      
+      const addr = data.address || {};
+      
+      return {
+        city: addr.city || addr.town || addr.village || addr.county || addr.state_district || 'Unknown',
+        state: addr.state || addr.state_district || '',
+        country: addr.country || '',
+        fullAddress: data.display_name || 'Unknown location'
+      };
+    } catch (error) {
+      console.error('❌ Geocoding error:', error);
+      return { 
+        city: 'Unknown', 
+        state: '', 
+        country: '',
+        fullAddress: 'Location unavailable'
+      };
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const response = await getAllUsers();
+      if (response.success) {
+        setUsers(response.users);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      toast.success('Logged out successfully');
+      onLogout();
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Logout failed');
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+    <div className="min-vh-100" style={{ 
+      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)'
+    }}>
+      {/* Modern Navbar */}
+      <nav className="shadow-sm" style={{
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        backdropFilter: 'blur(10px)'
+      }}>
+        <div className="container-fluid px-4 py-3">
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+            <div className="d-flex align-items-center gap-3">
+              <div className="d-flex align-items-center justify-content-center rounded-circle" style={{
+                width: '45px',
+                height: '45px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C8.13 2 5 5.13 5 9C5 14.25 12 22 12 22C12 22 19 14.25 19 9C19 5.13 15.87 2 12 2ZM12 11.5C10.62 11.5 9.5 10.38 9.5 9C9.5 7.62 10.62 6.5 12 6.5C13.38 6.5 14.5 7.62 14.5 9C14.5 10.38 13.38 11.5 12 11.5Z" 
+                        fill="white"/>
+                </svg>
+              </div>
+              <span className="fw-bold text-white" style={{ fontSize: 'clamp(1.1rem, 3vw, 1.3rem)' }}>
+                7x Infotech Tracker
+              </span>
+            </div>
+            
+            <div className="d-flex align-items-center gap-3">
+              {currentUser.profilePicture && (
+                <img
+                  src={currentUser.profilePicture}
+                  alt={currentUser.name}
+                  className="rounded-circle border border-2 border-white"
+                  style={{ 
+                    width: 'clamp(35px, 8vw, 45px)', 
+                    height: 'clamp(35px, 8vw, 45px)',
+                    objectFit: 'cover'
+                  }}
+                />
+              )}
+              <span className="text-white fw-semibold d-none d-md-inline" style={{ fontSize: 'clamp(0.9rem, 2vw, 1rem)' }}>
+                {currentUser.name}
+              </span>
+              <button 
+                className="btn btn-light btn-sm px-3 py-2 fw-semibold"
+                onClick={handleLogout}
+                style={{
+                  borderRadius: '10px',
+                  fontSize: 'clamp(0.8rem, 2vw, 0.9rem)'
+                }}
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
 
-      {/* Sidebar */}
-      <aside className={`fixed top-0 left-0 h-full w-80 bg-gradient-to-b from-indigo-600 via-purple-600 to-indigo-700 shadow-2xl z-50 transform transition-transform duration-300 ease-out lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        {/* Close Button - Mobile Only */}
-        <button
-          onClick={() => setSidebarOpen(false)}
-          className="absolute top-4 right-4 lg:hidden p-2 rounded-full bg-white/20 hover:bg-white/30 transition-all duration-200"
-        >
-          <X className="w-5 h-5 text-white" />
-        </button>
+      {/* Main Content */}
+      <div className="container-fluid px-3 px-md-4 py-4">
+        
+        {/* Welcome Card */}
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="card border-0 shadow-sm" style={{
+              borderRadius: '20px',
+              background: 'linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)',
+              overflow: 'hidden'
+            }}>
+              {/* Decorative Top Bar */}
+              <div style={{
+                height: '6px',
+                background: 'linear-gradient(90deg, #667eea 0%, #764ba2 50%, #667eea 100%)',
+                backgroundSize: '200% 100%',
+                animation: 'gradientMove 3s ease infinite'
+              }}></div>
+              
+              <div className="card-body p-3 p-md-4">
+                {/* Header Section */}
+                <div className="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
+                  <div>
+                    <h4 className="mb-2 fw-bold" style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      fontSize: 'clamp(1.3rem, 4vw, 1.75rem)'
+                    }}>
+                      Welcome back, {currentUser.name}! 👋
+                    </h4>
+                    <p className="text-muted mb-0" style={{ fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>
+                      📧 {currentUser.email}
+                    </p>
+                  </div>
+                  
+                  <div className="d-flex gap-2 flex-wrap">
+                    <button 
+                      className="btn btn-sm px-3 py-2 fw-semibold"
+                      style={{
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '12px',
+                        fontSize: 'clamp(0.8rem, 2vw, 0.9rem)',
+                        boxShadow: '0 4px 15px rgba(102, 126, 234, 0.3)'
+                      }}
+                      onClick={() => {
+                        if (navigator.geolocation) {
+                          toast.info('🔄 Getting fresh location...', { autoClose: 1500 });
+                          navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                              console.log('🆕 Fresh location requested:', pos.coords);
+                              updateUserLocation(pos.coords.latitude, pos.coords.longitude);
+                            },
+                            (err) => {
+                              console.error('❌ Location error:', err);
+                              toast.error('Failed to get location. Check permissions.');
+                            },
+                            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+                          );
+                        }
+                      }}
+                    >
+                      📍 Update Location
+                    </button>
+                    <button 
+                      className="btn btn-outline-primary btn-sm px-3 py-2 fw-semibold"
+                      style={{
+                        borderRadius: '12px',
+                        fontSize: 'clamp(0.8rem, 2vw, 0.9rem)',
+                        borderWidth: '2px'
+                      }}
+                      onClick={() => {
+                        fetchUsers();
+                        toast.info('Refreshing users...', { autoClose: 1500 });
+                      }}
+                    >
+                      🔄 Refresh
+                    </button>
+                  </div>
+                </div>
 
-        {/* Profile Section */}
-        <div className="p-6 border-b border-white/10">
-          <div className="flex flex-col items-center">
-            <div className="relative mb-4">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-white to-indigo-100 p-1 shadow-xl">
-                {currentUser?.profilePicture ? (
-                  <img 
-                    src={currentUser.profilePicture}
-                    alt={currentUser.name}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold">
-                    {currentUser?.name?.charAt(0).toUpperCase()}
+                {/* Status Cards Grid */}
+                <div className="row g-3 mb-4">
+                  {/* Tracking Status */}
+                  <div className="col-12 col-md-6 col-lg-3">
+                    <div className="p-3 rounded-3 h-100" style={{
+                      background: locationPermission ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' : 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)',
+                      color: 'white'
+                    }}>
+                      <div className="d-flex align-items-center gap-2 mb-2">
+                        <div style={{ fontSize: '1.5rem' }}>
+                          {locationPermission ? '🟢' : '🔴'}
+                        </div>
+                        <span className="fw-semibold" style={{ fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>
+                          Tracking Status
+                        </span>
+                      </div>
+                      <div className="fw-bold" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.1rem)' }}>
+                        {locationPermission ? 'Live Active' : 'Inactive'}
+                      </div>
+                      {lastUpdate && (
+                        <small className="opacity-75" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                          Updated: {lastUpdate}
+                        </small>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* GPS Accuracy */}
+                  <div className="col-12 col-md-6 col-lg-3">
+                    <div className="p-3 rounded-3 h-100" style={{
+                      background: locationAccuracy ? 
+                        locationAccuracy < 20 ? 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' :
+                        locationAccuracy < 50 ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' :
+                        locationAccuracy < 100 ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' :
+                        'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)' :
+                        'linear-gradient(135deg, #636363 0%, #a2ab58 100%)',
+                      color: 'white'
+                    }}>
+                      <div className="d-flex align-items-center gap-2 mb-2">
+                        <div style={{ fontSize: '1.5rem' }}>🎯</div>
+                        <span className="fw-semibold" style={{ fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>
+                          GPS Accuracy
+                        </span>
+                      </div>
+                      <div className="fw-bold" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.1rem)' }}>
+                        {locationAccuracy ? (
+                          <>
+                            {locationAccuracy < 20 ? 'Excellent' : 
+                             locationAccuracy < 50 ? 'Good' : 
+                             locationAccuracy < 100 ? 'Fair' : 'Poor'}
+                          </>
+                        ) : 'Unknown'}
+                      </div>
+                      {locationAccuracy && (
+                        <small className="opacity-75" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                          {locationAccuracy.toFixed(0)}m accuracy
+                        </small>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Current Location */}
+                  <div className="col-12 col-lg-6">
+                    <div className="p-3 rounded-3 h-100" style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white'
+                    }}>
+                      <div className="d-flex align-items-center gap-2 mb-2">
+                        <div style={{ fontSize: '1.5rem' }}>📍</div>
+                        <span className="fw-semibold" style={{ fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>
+                          Current Location
+                        </span>
+                      </div>
+                      <div className="fw-bold mb-1" style={{ fontSize: 'clamp(1rem, 2.5vw, 1.1rem)' }}>
+                        {currentUser.location?.city ? (
+                          <>
+                            {currentUser.location.city}
+                            {currentUser.location.state && `, ${currentUser.location.state}`}
+                          </>
+                        ) : (
+                          'Fetching location...'
+                        )}
+                      </div>
+                      {currentUser.location?.country && (
+                        <small className="opacity-75" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                          🌍 {currentUser.location.country}
+                        </small>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Location Info */}
+                {locationDetails.coords && (
+                  <div className="p-3 rounded-3" style={{
+                    background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
+                    border: 'none'
+                  }}>
+                    <div className="row g-2">
+                      <div className="col-12 col-md-6 col-lg-3">
+                        <small className="d-block mb-1 opacity-75 fw-semibold" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                          🌐 Coordinates
+                        </small>
+                        <div className="fw-bold" style={{ fontSize: 'clamp(0.8rem, 2vw, 0.9rem)' }}>
+                          {locationDetails.coords.lat.toFixed(4)}°N
+                        </div>
+                        <div className="fw-bold" style={{ fontSize: 'clamp(0.8rem, 2vw, 0.9rem)' }}>
+                          {locationDetails.coords.lng.toFixed(4)}°E
+                        </div>
+                      </div>
+                      
+                      {locationDetails.altitude && (
+                        <div className="col-12 col-md-6 col-lg-3">
+                          <small className="d-block mb-1 opacity-75 fw-semibold" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                            ⛰️ Altitude
+                          </small>
+                          <div className="fw-bold" style={{ fontSize: 'clamp(0.9rem, 2.2vw, 1rem)' }}>
+                            {locationDetails.altitude.toFixed(1)}m
+                          </div>
+                        </div>
+                      )}
+                      
+                      {locationDetails.speed && locationDetails.speed > 0 && (
+                        <div className="col-12 col-md-6 col-lg-3">
+                          <small className="d-block mb-1 opacity-75 fw-semibold" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                            🚗 Speed
+                          </small>
+                          <div className="fw-bold" style={{ fontSize: 'clamp(0.9rem, 2.2vw, 1rem)' }}>
+                            {(locationDetails.speed * 3.6).toFixed(1)} km/h
+                          </div>
+                        </div>
+                      )}
+                      
+                      {locationDetails.heading !== null && (
+                        <div className="col-12 col-md-6 col-lg-3">
+                          <small className="d-block mb-1 opacity-75 fw-semibold" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                            🧭 Direction
+                          </small>
+                          <div className="fw-bold" style={{ fontSize: 'clamp(0.9rem, 2.2vw, 1rem)' }}>
+                            {locationDetails.heading.toFixed(0)}°
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {currentUser.location?.fullAddress && (
+                  <div className="mt-3 p-3 rounded-3" style={{
+                    background: 'rgba(102, 126, 234, 0.1)',
+                    border: '2px dashed rgba(102, 126, 234, 0.3)'
+                  }}>
+                    <small className="text-muted fw-semibold d-block mb-1" style={{ fontSize: 'clamp(0.7rem, 1.8vw, 0.75rem)' }}>
+                      🗺️ Full Address
+                    </small>
+                    <div style={{ fontSize: 'clamp(0.85rem, 2vw, 0.95rem)' }}>
+                      {currentUser.location.fullAddress}
+                    </div>
                   </div>
                 )}
               </div>
-              <div className={`absolute bottom-0 right-0 w-6 h-6 rounded-full ${locationPermission ? 'bg-green-400' : 'bg-red-400'} border-4 border-white shadow-lg animate-pulse`}></div>
             </div>
-            <h3 className="text-white text-xl font-bold mb-1">{currentUser?.name}</h3>
-            <p className="text-indigo-200 text-sm mb-3">{currentUser?.email}</p>
-            {currentUser?.location?.city && (
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/20 backdrop-blur-md rounded-full text-white text-sm font-medium">
-                <MapPin className="w-4 h-4" />
-                {currentUser.location.city}, {currentUser.location.state}
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Navigation Menu */}
-        <nav className="p-4 space-y-1">
-          {[
-            { icon: Home, label: 'Dashboard', active: true },
-            { icon: MapPin, label: 'My Location', active: false },
-            { icon: Users, label: 'Friends', active: false },
-            { icon: Navigation, label: 'Map View', active: false },
-            { icon: Settings, label: 'Settings', active: false }
-          ].map((item, index) => (
-            <button
-              key={index}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group ${
-                item.active 
-                  ? 'bg-white text-indigo-600 shadow-lg' 
-                  : 'text-white hover:bg-white/10'
-              }`}
-            >
-              <item.icon className={`w-5 h-5 ${item.active ? 'text-indigo-600' : 'text-white'}`} />
-              <span className="font-medium flex-1 text-left">{item.label}</span>
-              {item.active && <ChevronRight className="w-4 h-4" />}
-            </button>
-          ))}
-        </nav>
-
-        {/* Quick Stats */}
-        <div className="absolute bottom-20 left-0 right-0 p-4">
-          <p className="text-indigo-200 text-xs uppercase tracking-wider mb-3 font-semibold">Quick Stats</p>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: 'Friends', value: users.length },
-              { label: 'Online', value: onlineUsers },
-              { label: 'Accuracy', value: locationAccuracy ? `${locationAccuracy.toFixed(0)}m` : 'N/A' }
-            ].map((stat, index) => (
-              <div key={index} className="bg-white/20 backdrop-blur-md rounded-lg p-3 text-center">
-                <div className="text-white text-lg font-bold">{stat.value}</div>
-                <div className="text-indigo-200 text-xs">{stat.label}</div>
+        {/* Map Section */}
+        <div className="row mb-4">
+          <div className="col-12">
+            <div className="card border-0 shadow-sm" style={{
+              borderRadius: '20px',
+              overflow: 'hidden'
+            }}>
+              <div className="card-header" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '1rem 1.5rem'
+              }}>
+                <h5 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ fontSize: 'clamp(1rem, 3vw, 1.2rem)' }}>
+                  <span>🗺️</span> Live Location Map
+                </h5>
               </div>
-            ))}
+              <div className="card-body p-0">
+                <MapComponent users={users} currentUser={currentUser} />
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Logout Button */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
-          <button 
-            onClick={onLogout}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
-          >
-            <LogOut className="w-5 h-5" />
-            Logout
-          </button>
+        {/* Users Table Section */}
+        <div className="row">
+          <div className="col-12">
+            <div className="card border-0 shadow-sm" style={{
+              borderRadius: '20px',
+              overflow: 'hidden'
+            }}>
+              <div className="card-header" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '1rem 1.5rem'
+              }}>
+                <h5 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ fontSize: 'clamp(1rem, 3vw, 1.2rem)' }}>
+                  <span>👥</span> All Users Tracking
+                </h5>
+              </div>
+              <div className="card-body p-3 p-md-4">
+                <UserTable users={users} />
+              </div>
+            </div>
+          </div>
         </div>
-      </aside>
+      </div>
 
-      {/* Main Content */}
-      <main className="lg:ml-80 min-h-screen">
-        {/* Top Navigation Bar */}
-        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-lg border-b border-gray-200 shadow-sm">
-          <div className="px-4 lg:px-8 py-4">
-            <div className="flex items-center justify-between">
-              {/* Menu Button */}
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg hover:shadow-xl transition-all duration-200"
-              >
-                <Menu className="w-6 h-6" />
-              </button>
+      <style>{`
+        @keyframes gradientMove {
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
+        }
 
-              {/* Title */}
-              <h1 className="text-2xl lg:text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                Location Tracker
-              </h1>
+        .card {
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
 
-              {/* Profile Quick Access */}
-              <button 
-                onClick={() => setSidebarOpen(true)}
-                className="flex items-center gap-3 hover:bg-gray-100 rounded-xl p-2 transition-all duration-200"
-              >
-                <div className="hidden md:block text-right">
-                  <div className="text-sm font-semibold text-gray-900">{currentUser?.name}</div>
-                  <div className="text-xs text-gray-500 flex items-center justify-end gap-1">
-                    <div className={`w-2 h-2 rounded-full ${locationPermission ? 'bg-green-500' : 'bg-red-500'} animate-pulse`}></div>
-                    {locationPermission ? 'Live Tracking' : 'Offline'}
-                  </div>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold shadow-lg">
-                  {currentUser?.name?.charAt(0).toUpperCase()}
-                </div>
-              </button>
-            </div>
-          </div>
-        </header>
+        .card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15) !important;
+        }
 
-        {/* Dashboard Content */}
-        <div className="p-4 lg:p-8 space-y-6">
-          {/* Welcome Card */}
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-            <div className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 p-6">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl lg:text-3xl font-bold text-white mb-2">
-                    Welcome back, {currentUser?.name}! 👋
-                  </h2>
-                  <p className="text-indigo-100">Your location is being tracked in real-time</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button 
-                    onClick={() => {
-                      if (navigator.geolocation && updateUserLocation) {
-                        navigator.geolocation.getCurrentPosition(
-                          (pos) => updateUserLocation(pos.coords.latitude, pos.coords.longitude),
-                          (err) => console.error('Location error:', err),
-                          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-                        );
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-white text-indigo-600 rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105"
-                  >
-                    <MapPin className="w-4 h-4" />
-                    Update Location
-                  </button>
-                  <button 
-                    onClick={fetchUsers}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 bg-white/20 backdrop-blur-md text-white rounded-xl font-medium hover:bg-white/30 transition-all duration-200"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    Refresh
-                  </button>
-                </div>
-              </div>
-            </div>
+        .btn {
+          transition: all 0.3s ease;
+        }
 
-            <div className="p-6 space-y-4">
-              {/* User Info Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <User className="w-4 h-4" />
-                    <span className="text-sm font-medium">Email</span>
-                  </div>
-                  <p className="text-gray-900 font-semibold">{currentUser?.email}</p>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Activity className="w-4 h-4" />
-                    <span className="text-sm font-medium">Tracking Status</span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${locationPermission ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {locationPermission ? '🟢 Live Tracking Active' : '🔴 Inactive'}
-                    </span>
-                    {lastUpdate && (
-                      <span className="text-xs text-gray-500 flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {lastUpdate}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+        .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
 
-              {/* Location Details */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-100">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <MapPin className="w-4 h-4" />
-                    <span className="text-sm font-medium">Current Location</span>
-                  </div>
-                  {currentUser?.location?.city ? (
-                    <div>
-                      <p className="text-indigo-600 font-bold text-lg">
-                        {currentUser.location.city}
-                        {currentUser.location.state && `, ${currentUser.location.state}`}
-                      </p>
-                      {currentUser.location.fullAddress && (
-                        <p className="text-gray-500 text-sm mt-1">{currentUser.location.fullAddress}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-gray-400">Fetching location...</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-gray-600">
-                    <Gauge className="w-4 h-4" />
-                    <span className="text-sm font-medium">GPS Accuracy</span>
-                  </div>
-                  {locationAccuracy ? (
-                    <span className={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
-                      locationAccuracy < 20 ? 'bg-green-100 text-green-700' : 
-                      locationAccuracy < 50 ? 'bg-blue-100 text-blue-700' : 
-                      locationAccuracy < 100 ? 'bg-yellow-100 text-yellow-700' : 
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {locationAccuracy < 20 ? '🟢 Excellent' : 
-                       locationAccuracy < 50 ? '🔵 Good' : 
-                       locationAccuracy < 100 ? '🟡 Fair' : '🔴 Poor'} ({locationAccuracy.toFixed(0)}m)
-                    </span>
-                  ) : (
-                    <span className="inline-block px-3 py-1 rounded-full text-sm font-semibold bg-gray-100 text-gray-700">
-                      Unknown
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Coordinates Info */}
-              {locationDetails?.coords && (
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
-                  <div className="flex flex-wrap items-center gap-4 text-sm">
-                    <div className="flex items-center gap-2">
-                      <Navigation className="w-4 h-4 text-indigo-600" />
-                      <span className="text-gray-600">Coordinates:</span>
-                      <span className="font-mono font-semibold text-gray-900">
-                        {locationDetails.coords.lat.toFixed(6)}°N, {locationDetails.coords.lng.toFixed(6)}°E
-                      </span>
-                    </div>
-                    {locationDetails.altitude && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">⛰️ Altitude:</span>
-                        <span className="font-semibold text-gray-900">{locationDetails.altitude.toFixed(1)}m</span>
-                      </div>
-                    )}
-                    {locationDetails.speed && locationDetails.speed > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-600">🚗 Speed:</span>
-                        <span className="font-semibold text-gray-900">{(locationDetails.speed * 3.6).toFixed(1)} km/h</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { icon: Users, label: 'Total Friends', value: users.length, color: 'from-blue-500 to-cyan-500', bg: 'from-blue-50 to-cyan-50' },
-              { icon: Wifi, label: 'Online Now', value: onlineUsers, color: 'from-green-500 to-emerald-500', bg: 'from-green-50 to-emerald-50' },
-              { icon: TrendingUp, label: 'Active Today', value: users.length, color: 'from-purple-500 to-pink-500', bg: 'from-purple-50 to-pink-50' },
-              { icon: Zap, label: 'Accuracy', value: locationAccuracy ? `${locationAccuracy.toFixed(0)}m` : 'N/A', color: 'from-orange-500 to-red-500', bg: 'from-orange-50 to-red-50' }
-            ].map((stat, index) => (
-              <div key={index} className={`bg-gradient-to-br ${stat.bg} rounded-2xl p-6 border border-gray-100 hover:shadow-xl transition-all duration-300 hover:scale-105 cursor-pointer`}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`p-3 bg-gradient-to-br ${stat.color} rounded-xl shadow-lg`}>
-                    <stat.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
-                  </div>
-                </div>
-                <p className="text-gray-600 font-medium">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Map Placeholder - Using passed MapComponent if available */}
-          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-6 py-4">
-              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                <Navigation className="w-5 h-5" />
-                Live Location Map
-              </h3>
-            </div>
-            <div className="aspect-video bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center">
-              <div className="text-center p-8">
-                <Navigation className="w-16 h-16 mx-auto text-indigo-400 mb-4" />
-                <p className="text-gray-600 font-medium">Interactive map will be displayed here</p>
-                <p className="text-gray-400 text-sm mt-2">Showing real-time locations of all users</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Users Table */}
-          {users.length > 0 && (
-            <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-100">
-              <div className="bg-gradient-to-r from-purple-500 to-pink-600 px-6 py-4">
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Friends Location
-                </h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">User</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Location</th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {users.map((u, index) => (
-                      <tr key={index} className="hover:bg-gray-50 transition-colors duration-150">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-3">
-                            {u.profilePicture ? (
-                              <img src={u.profilePicture} alt={u.name} className="w-10 h-10 rounded-full object-cover" />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold">
-                                {u.name?.charAt(0).toUpperCase()}
-                              </div>
-                            )}
-                            <span className="font-medium text-gray-900">{u.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                          {u.email}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-gray-600">
-                          <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-indigo-500" />
-                            {u.location?.city || 'Unknown'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${u.location ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
-                            {u.location ? '🟢 Online' : '⚫ Offline'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      </main>
+        @media (max-width: 768px) {
+          .card-body {
+            padding: 1rem !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };
