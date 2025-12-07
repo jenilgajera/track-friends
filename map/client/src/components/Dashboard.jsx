@@ -38,21 +38,40 @@ const Dashboard = ({ user, onLogout }) => {
     requestLocationPermission();
     fetchUsers();
 
-    const intervalId = setInterval(() => {
+    // Auto refresh users every 30 seconds
+    const usersRefreshInterval = setInterval(() => {
       fetchUsers();
       console.log('🔄 Auto-refreshing users...');
     }, 30000);
 
+    // Auto update location every 5 minutes (300000ms)
+    const locationUpdateInterval = setInterval(() => {
+      if (navigator.geolocation && locationPermission) {
+        console.log('⏰ 5-minute timer: Updating location...');
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            console.log('🔄 Scheduled location update:', pos.coords);
+            updateUserLocation(pos.coords.latitude, pos.coords.longitude);
+          },
+          (err) => {
+            console.error('❌ Scheduled location update failed:', err);
+          },
+          { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+        );
+      }
+    }, 300000); // 5 minutes = 300000 milliseconds
+
     return () => {
       socket.disconnect();
-      clearInterval(intervalId);
+      clearInterval(usersRefreshInterval);
+      clearInterval(locationUpdateInterval);
       
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         console.log('🛑 Location tracking stopped');
       }
     };
-  }, []);
+  }, [locationPermission]);
 
   const requestLocationPermission = () => {
     if ('geolocation' in navigator) {
@@ -60,64 +79,30 @@ const Dashboard = ({ user, onLogout }) => {
         (position) => {
           setLocationPermission(true);
           updateUserLocation(position.coords.latitude, position.coords.longitude);
-          toast.success('Location tracking started!');
+          toast.success('🎯 Location tracking started! Updates every 5 minutes.');
           
-          const id = navigator.geolocation.watchPosition(
-            (pos) => {
-              const accuracy = pos.coords.accuracy;
-              setLocationAccuracy(accuracy);
-              
-              setLocationDetails({
-                coords: {
-                  lat: pos.coords.latitude,
-                  lng: pos.coords.longitude
-                },
-                speed: pos.coords.speed,
-                heading: pos.coords.heading,
-                altitude: pos.coords.altitude
-              });
-              
-              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-              console.log('📍 LIVE LOCATION UPDATE');
-              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-              console.log('🌐 Latitude:', pos.coords.latitude);
-              console.log('🌐 Longitude:', pos.coords.longitude);
-              console.log('🎯 Accuracy:', accuracy.toFixed(2), 'meters');
-              console.log('⛰️  Altitude:', pos.coords.altitude ? pos.coords.altitude.toFixed(2) + 'm' : 'N/A');
-              console.log('🚗 Speed:', pos.coords.speed ? (pos.coords.speed * 3.6).toFixed(2) + ' km/h' : 'Stationary');
-              console.log('🧭 Heading:', pos.coords.heading ? pos.coords.heading + '°' : 'N/A');
-              console.log('📡 Source:', pos.coords.altitudeAccuracy !== null ? '🛰️ GPS' : '📶 WiFi/Network');
-              console.log('⏰ Time:', new Date(pos.timestamp).toLocaleTimeString());
-              console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-              
-              if (accuracy < 100) {
-                updateUserLocation(pos.coords.latitude, pos.coords.longitude);
-              } else {
-                console.warn('⚠️ Accuracy too low, waiting for better signal...');
-                toast.warning(`Low accuracy: ${accuracy.toFixed(0)}m - Waiting for better GPS signal...`, {
-                  autoClose: 2000
-                });
-              }
+          // Store location details for display only
+          const accuracy = position.coords.accuracy;
+          setLocationAccuracy(accuracy);
+          
+          setLocationDetails({
+            coords: {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
             },
-            (error) => {
-              console.error('❌ Location tracking error:', error);
-              if (error.code === 1) {
-                toast.error('Location permission denied');
-              } else if (error.code === 2) {
-                toast.error('Location unavailable');
-              } else {
-                toast.error('Location timeout');
-              }
-            },
-            { 
-              enableHighAccuracy: true,
-              timeout: 20000,
-              maximumAge: 0
-            }
-          );
-
-          setWatchId(id);
-          console.log('✅ Location watch started with ID:', id);
+            speed: position.coords.speed,
+            heading: position.coords.heading,
+            altitude: position.coords.altitude
+          });
+          
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('📍 INITIAL LOCATION');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('🌐 Latitude:', position.coords.latitude);
+          console.log('🌐 Longitude:', position.coords.longitude);
+          console.log('🎯 Accuracy:', accuracy.toFixed(2), 'meters');
+          console.log('⏰ Next update in 5 minutes');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         },
         (error) => {
           setLocationPermission(false);
@@ -165,12 +150,22 @@ const Dashboard = ({ user, onLogout }) => {
         }
       }));
       
+      // Update location details for display
+      setLocationDetails(prev => ({
+        ...prev,
+        coords: {
+          lat: latitude,
+          lng: longitude
+        }
+      }));
+      
       setLastUpdate(new Date().toLocaleTimeString());
       toast.success(`✅ Location updated: ${cityData.city}`, {
         autoClose: 2000
       });
       
       console.log('✅ Location updated successfully in database');
+      console.log('⏰ Next automatic update in 5 minutes');
     } catch (error) {
       console.error('❌ Failed to update location:', error);
       toast.error('Location update failed');
